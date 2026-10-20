@@ -39,7 +39,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Compilar APK
-        run: pnpm android:apk
+        run: |
+          set -o pipefail
+          if pnpm android:apk 2>&1 | tee android-build.log; then
+            exit 0
+          fi
+
+          {
+            echo "## Error de compilación de Android"
+            echo '```text'
+            tail -n 200 android-build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Preparar archivo descargable
         run: cp android/app/build/outputs/apk/debug/app-debug.apk tono-uno.apk
