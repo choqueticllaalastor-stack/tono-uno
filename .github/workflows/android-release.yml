@@ -35,9 +35,6 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Instalar dependencias
         run: pnpm install --frozen-lockfile
 
