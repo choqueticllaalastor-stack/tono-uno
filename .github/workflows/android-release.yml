@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Descargar el código
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configurar pnpm
         uses: pnpm/action-setup@v4
