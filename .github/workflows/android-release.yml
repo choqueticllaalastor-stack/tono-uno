@@ -1,0 +1,58 @@
+name: Publicar APK de Android
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    env:
+      VITE_ANDROID_APK_URL: https://github.com/${{ github.repository }}/releases/latest/download/tono-uno.apk
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Compilar APK
+        run: pnpm android:apk
+
+      - name: Preparar archivo descargable
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk tono-uno.apk
+
+      - name: Crear GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" tono-uno.apk --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" tono-uno.apk --title "Tono Uno $GITHUB_REF_NAME" --generate-notes
+          fi

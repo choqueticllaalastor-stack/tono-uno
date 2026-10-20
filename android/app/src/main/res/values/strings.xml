@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tono Uno</string>
+    <string name="title_activity_main">Tono Uno</string>
+    <string name="package_name">com.tonouno.app</string>
+    <string name="custom_url_scheme">com.tonouno.app</string>
+</resources>
