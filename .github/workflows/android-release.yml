@@ -51,6 +51,12 @@ jobs:
             tail -n 200 android-build.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          error_output=$(tail -n 120 android-build.log)
+          error_output=${error_output//'%'/'%25'}
+          error_output=${error_output//$'\r'/'%0D'}
+          error_output=${error_output//$'\n'/'%0A'}
+          echo "::error title=Error de compilación de Android::$error_output"
           exit 1
 
       - name: Preparar archivo descargable
