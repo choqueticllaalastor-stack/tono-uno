@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       VITE_ANDROID_APK_URL: https://github.com/${{ github.repository }}/releases/latest/download/tono-uno.apk
 
