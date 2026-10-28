@@ -371,12 +371,37 @@ export default function App() {
     setSequence([])
   }
 
-  const sendRemoteCommand = (command: string) => {
+  const sendRemoteCommand = async (
+    command: string,
+    payload: string,
+  ): Promise<boolean> => {
     setRemoteCommand(command)
     setActiveDirection(command)
     playTone(command === "BOCINA" ? "G" : "C")
     if (timeout.current) window.clearTimeout(timeout.current)
     timeout.current = window.setTimeout(() => setActiveDirection(""), 220)
+
+    if (Capacitor.getPlatform() !== "android") {
+      addTerminalEntry("TX", payload)
+      return true
+    }
+
+    if (connection !== "connected") {
+      setRemoteCommand("SIN CONEXIÓN")
+      speak("Conecta el auto por Bluetooth antes de usar el mando.")
+      return false
+    }
+
+    try {
+      await BluetoothClassic.write({ data: payload })
+      addTerminalEntry("TX", payload)
+      return true
+    } catch {
+      setConnection("idle")
+      setRemoteCommand("ERROR DE ENVÍO")
+      speak("No se pudo enviar el comando. Vuelve a conectar el auto.")
+      return false
+    }
   }
 
   return (
@@ -834,7 +859,7 @@ export default function App() {
               <div className="relative mx-auto mt-8 grid w-full max-w-[430px] grid-cols-3 gap-3">
                 <span />
                 <button
-                  onClick={() => sendRemoteCommand("ADELANTE")}
+                  onClick={() => void sendRemoteCommand("ADELANTE", "W")}
                   className={`direction-button ${
                     activeDirection === "ADELANTE" ? "active" : ""
                   }`}
@@ -850,7 +875,7 @@ export default function App() {
                 </button>
                 <span />
                 <button
-                  onClick={() => sendRemoteCommand("IZQUIERDA")}
+                  onClick={() => void sendRemoteCommand("IZQUIERDA", "A")}
                   className={`direction-button ${
                     activeDirection === "IZQUIERDA" ? "active" : ""
                   }`}
@@ -865,13 +890,13 @@ export default function App() {
                   <small>Izquierda</small>
                 </button>
                 <button
-                  onClick={() => sendRemoteCommand("ALTO")}
+                  onClick={() => void sendRemoteCommand("ALTO", "X")}
                   className="grid aspect-square place-items-center rounded-full border-8 border-[#173a55] bg-[#ef6a47] font-display text-lg font-black text-white shadow-[0_8px_0_#9d3520] transition-all hover:-translate-y-1 active:translate-y-1 active:shadow-none"
                 >
                   ALTO
                 </button>
                 <button
-                  onClick={() => sendRemoteCommand("DERECHA")}
+                  onClick={() => void sendRemoteCommand("DERECHA", "D")}
                   className={`direction-button ${
                     activeDirection === "DERECHA" ? "active" : ""
                   }`}
@@ -887,7 +912,7 @@ export default function App() {
                 </button>
                 <span />
                 <button
-                  onClick={() => sendRemoteCommand("REVERSA")}
+                  onClick={() => void sendRemoteCommand("REVERSA", "S")}
                   className={`direction-button ${
                     activeDirection === "REVERSA" ? "active" : ""
                   }`}
@@ -927,8 +952,23 @@ export default function App() {
                   step="10"
                   value={speed}
                   onChange={(event) => {
-                    setSpeed(Number(event.target.value))
-                    setRemoteCommand(`VELOCIDAD ${event.target.value}%`)
+                    const nextSpeed = Number(event.target.value)
+                    setSpeed(nextSpeed)
+                    setRemoteCommand(`VELOCIDAD ${nextSpeed}%`)
+                  }}
+                  onPointerUp={(event) => {
+                    const nextSpeed = Number(event.currentTarget.value)
+                    void sendRemoteCommand(
+                      `VELOCIDAD ${nextSpeed}%`,
+                      `V${nextSpeed}`,
+                    )
+                  }}
+                  onKeyUp={(event) => {
+                    const nextSpeed = Number(event.currentTarget.value)
+                    void sendRemoteCommand(
+                      `VELOCIDAD ${nextSpeed}%`,
+                      `V${nextSpeed}`,
+                    )
                   }}
                   aria-label="Velocidad del auto"
                 />
@@ -941,8 +981,13 @@ export default function App() {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => {
-                    setLightsOn((current) => !current)
-                    setRemoteCommand(lightsOn ? "LUCES OFF" : "LUCES ON")
+                    const nextLightsOn = !lightsOn
+                    void sendRemoteCommand(
+                      nextLightsOn ? "LUCES ON" : "LUCES OFF",
+                      nextLightsOn ? "L1" : "L0",
+                    ).then((sent) => {
+                      if (sent) setLightsOn(nextLightsOn)
+                    })
                   }}
                   className={`rounded-[1.5rem] border-2 p-5 text-left transition-all ${
                     lightsOn
@@ -959,7 +1004,7 @@ export default function App() {
                   </small>
                 </button>
                 <button
-                  onClick={() => sendRemoteCommand("BOCINA")}
+                  onClick={() => void sendRemoteCommand("BOCINA", "H")}
                   className="rounded-[1.5rem] border-2 border-[#d5dcd9] bg-white p-5 text-left transition-all hover:-translate-y-1 hover:border-[#ef6a47]"
                 >
                   <span className="font-display text-2xl font-black">♪</span>
@@ -973,8 +1018,8 @@ export default function App() {
               </div>
 
               <p className="rounded-2xl bg-[#e5eff2] px-4 py-3 text-xs leading-relaxed text-[#4b6778]">
-                Los controles ya generan comandos visuales. La transmisión final
-                dependerá de los comandos que programes en tu Arduino.
+                Protocolo serial: W adelante · A izquierda · S atrás · D derecha
+                · X alto · H bocina · L1/L0 luces · V0–V100 velocidad.
               </p>
             </aside>
           </div>
