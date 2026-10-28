@@ -19,6 +19,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,7 +38,8 @@ import java.util.UUID;
 )
 public class BluetoothClassicPlugin extends Plugin {
     private static final UUID SERIAL_PORT_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-    private BluetoothSocket socket;
+    private final Object socketLock = new Object();
+    private volatile BluetoothSocket socket;
 
     private BluetoothAdapter getAdapter() {
         BluetoothManager manager = (BluetoothManager) getContext().getSystemService(Context.BLUETOOTH_SERVICE);
@@ -101,17 +104,58 @@ public class BluetoothClassicPlugin extends Plugin {
         }
 
         new Thread(() -> {
+            BluetoothSocket newSocket = null;
             try {
-                if (socket != null) {
-                    socket.close();
-                }
                 BluetoothDevice device = adapter.getRemoteDevice(address);
-                socket = device.createRfcommSocketToServiceRecord(SERIAL_PORT_UUID);
+                newSocket = device.createRfcommSocketToServiceRecord(SERIAL_PORT_UUID);
                 adapter.cancelDiscovery();
-                socket.connect();
+                newSocket.connect();
+                synchronized (socketLock) {
+                    closeSocket();
+                    socket = newSocket;
+                }
                 call.resolve();
             } catch (IOException | SecurityException exception) {
+                if (newSocket != null) {
+                    try {
+                        newSocket.close();
+                    } catch (IOException ignored) {
+                        // The failed socket is already closed.
+                    }
+                }
                 call.reject("No se pudo conectar con el módulo Bluetooth.", exception);
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void write(PluginCall call) {
+        String data = call.getString("data");
+        if (data == null || data.isEmpty()) {
+            call.reject("No hay datos para enviar.");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                byte[] bytes = data.getBytes(StandardCharsets.UTF_8);
+                synchronized (socketLock) {
+                    if (socket == null || !socket.isConnected()) {
+                        call.reject("El dispositivo Bluetooth no está conectado.");
+                        return;
+                    }
+                    OutputStream output = socket.getOutputStream();
+                    output.write(bytes);
+                    output.flush();
+                }
+                JSObject result = new JSObject();
+                result.put("bytesWritten", bytes.length);
+                call.resolve(result);
+            } catch (IOException | SecurityException exception) {
+                synchronized (socketLock) {
+                    closeSocket();
+                }
+                call.reject("No se pudo enviar el comando por Bluetooth.", exception);
             }
         }).start();
     }
@@ -126,13 +170,21 @@ public class BluetoothClassicPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        synchronized (socketLock) {
+            closeSocket();
+        }
+        super.handleOnDestroy();
+    }
+
+    private void closeSocket() {
         if (socket != null) {
             try {
                 socket.close();
             } catch (IOException ignored) {
                 // The socket is already closed.
+            } finally {
+                socket = null;
             }
         }
-        super.handleOnDestroy();
     }
 }

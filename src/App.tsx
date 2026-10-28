@@ -7,7 +7,7 @@ type ConnectionState = "idle" | "connecting" | "connected" | "unsupported"
 type LineEnding = "CR+LF" | "LF" | "Ninguno"
 type TerminalEntry = {
   id: number
-  direction: "TX"
+  direction: "TX" | "ERROR"
   message: string
   time: string
 }
@@ -27,6 +27,7 @@ type BluetoothClassicPlugin = {
   requestPermissions: () => Promise<void>
   listPairedDevices: () => Promise<{ devices: BluetoothDeviceLike[] }>
   connect: (options: { address: string }) => Promise<void>
+  write: (options: { data: string }) => Promise<{ bytesWritten: number }>
   openSettings: () => Promise<void>
 }
 
@@ -144,8 +145,9 @@ export default function App() {
   const [deviceName, setDeviceName] = useState("")
   const [sequence, setSequence] = useState<string[]>([])
   const [lastSent, setLastSent] = useState("")
-  const [lineEnding, setLineEnding] = useState<LineEnding>("CR+LF")
+  const [lineEnding, setLineEnding] = useState<LineEnding>("Ninguno")
   const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([])
+  const [isSending, setIsSending] = useState(false)
   const [activeLetter, setActiveLetter] = useState("")
   const [remoteCommand, setRemoteCommand] = useState("EN ESPERA")
   const [activeDirection, setActiveDirection] = useState("")
@@ -305,17 +307,17 @@ export default function App() {
     }
   }
 
-  const sendSequence = () => {
-    if (!sequence.length) return
-    const command = sequence.join("")
-    setLastSent(command)
+  const addTerminalEntry = (
+    direction: TerminalEntry["direction"],
+    message: string,
+  ) => {
     setTerminalHistory((current) =>
       [
         ...current,
         {
           id: Date.now(),
-          direction: "TX",
-          message: command,
+          direction,
+          message,
           time: new Intl.DateTimeFormat("es-MX", {
             hour: "2-digit",
             minute: "2-digit",
@@ -325,6 +327,42 @@ export default function App() {
         },
       ].slice(-30),
     )
+  }
+
+  const sendSequence = async () => {
+    if (!sequence.length) return
+    const command = sequence.join("")
+    const terminator =
+      lineEnding === "CR+LF" ? "\r\n" : lineEnding === "LF" ? "\n" : ""
+
+    if (Capacitor.getPlatform() === "android") {
+      if (connection !== "connected") {
+        addTerminalEntry(
+          "ERROR",
+          "Conecta un dispositivo antes de enviar el comando.",
+        )
+        speak("Conecta un dispositivo Bluetooth antes de enviar.")
+        return
+      }
+
+      setIsSending(true)
+      try {
+        await BluetoothClassic.write({ data: `${command}${terminator}` })
+      } catch {
+        setConnection("idle")
+        addTerminalEntry(
+          "ERROR",
+          "Falló el envío. Vuelve a conectar el módulo Bluetooth.",
+        )
+        speak("No se pudo enviar el comando. Vuelve a conectar el módulo.")
+        setIsSending(false)
+        return
+      }
+      setIsSending(false)
+    }
+
+    setLastSent(command)
+    addTerminalEntry("TX", command)
     sequence
       .filter((letter) => letters.includes(letter))
       .forEach((letter, index) => {
@@ -571,17 +609,19 @@ export default function App() {
                     />
                     {connection === "connected"
                       ? "Puerto serial conectado"
-                      : "Modo de prueba local"}
+                      : "Sin conexión serial"}
                   </span>
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="rounded-lg bg-black/20 px-3 py-2 font-mono text-[10px] font-bold text-[#9cb4c2]">
                   RX 0 B <span className="mx-1 text-white/20">·</span> TX{" "}
-                  {terminalHistory.reduce(
-                    (total, entry) => total + entry.message.length,
-                    0,
-                  )}{" "}
+                  {terminalHistory
+                    .filter((entry) => entry.direction === "TX")
+                    .reduce(
+                      (total, entry) => total + entry.message.length,
+                      0,
+                    )}{" "}
                   B
                 </span>
                 <button
@@ -611,10 +651,22 @@ export default function App() {
                     className="grid grid-cols-[auto_auto_1fr] gap-2"
                   >
                     <span className="text-[#4f6877]">{entry.time}</span>
-                    <span className="font-bold text-[#c7ff64]">
+                    <span
+                      className={`font-bold ${
+                        entry.direction === "ERROR"
+                          ? "text-[#ef8a6d]"
+                          : "text-[#c7ff64]"
+                      }`}
+                    >
                       {entry.direction}›
                     </span>
-                    <span className="break-all text-[#eef7f2]">
+                    <span
+                      className={`break-all ${
+                        entry.direction === "ERROR"
+                          ? "text-[#efb4a3]"
+                          : "text-[#eef7f2]"
+                      }`}
+                    >
                       {entry.message}
                     </span>
                   </div>
@@ -658,7 +710,7 @@ export default function App() {
                 className="flex items-center gap-2 rounded-xl border border-[#35566b] bg-[#08131a] p-2 focus-within:border-[#77b6c8]"
                 onSubmit={(event) => {
                   event.preventDefault()
-                  sendSequence()
+                  void sendSequence()
                 }}
               >
                 <span className="pl-2 font-mono font-bold text-[#c7ff64]">
@@ -678,9 +730,9 @@ export default function App() {
                 />
                 <button
                   type="submit"
-                  disabled={!sequence.length}
+                  disabled={!sequence.length || isSending}
                   className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#ef6a47] text-white transition-all enabled:hover:-translate-y-0.5 disabled:opacity-35"
-                  aria-label="Enviar comando"
+                  aria-label={isSending ? "Enviando comando" : "Enviar comando"}
                 >
                   <PlayIcon />
                 </button>
